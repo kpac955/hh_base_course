@@ -47,14 +47,14 @@ host=localhost\
 user=postgres\
 password=ваш_пароль\
 port=5432\
-database=hh_course\
+database=hh_course
 
 ### Запустите основной скрипт:
 
 
     python main.py
 
-Структура проекта
+### Структура проекта
 
     main.py — основной файл для взаимодействия с пользователем.
 
