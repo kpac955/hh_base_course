@@ -1,89 +1,98 @@
 import psycopg2
-from config import config
 
 
-def create_tables():
-    """Создает таблицы employers и vacancies в базе данных PostgreSQL."""
-    commands = (
-        """
-        CREATE TABLE IF NOT EXISTS employers (
-            employer_id SERIAL PRIMARY KEY,
-            hh_id VARCHAR(20) UNIQUE NOT NULL,
-            company_name VARCHAR(255) NOT NULL,
-            url TEXT
-        )
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS vacancies (
-            vacancy_id SERIAL PRIMARY KEY,
-            employer_id INTEGER REFERENCES employers(employer_id),
-            title VARCHAR(255) NOT NULL,
-            salary INTEGER,
-            url TEXT
-        )
-        """
-    )
+def create_database(db_name, params):
+    """Создает базу данных и таблицы."""
+    # 1. Подключаемся к системной базе 'postgres', чтобы создать новую БД
+    db_params = params.copy()
+    db_params['dbname'] = 'postgres'
 
-    conn = None
-    try:
-        params = config()
-        conn = psycopg2.connect(**params)
-        cur = conn.cursor()
-        for command in commands:
-            cur.execute(command)
-        cur.close()
-        conn.commit()
-        print("База данных готова к работе!")
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(error)
-    finally:
-        if conn is not None:
-            conn.close()
+    conn = psycopg2.connect(**db_params)
+    conn.autocommit = True
+    cur = conn.cursor()
 
+    # Удаляем базу, если она есть, и создаем заново
+    cur.execute(f"DROP DATABASE IF EXISTS {db_name}")
+    cur.execute(f"CREATE DATABASE {db_name}")
 
-def save_data_to_db(data):
-    """Сохраняет данные о работодателях и вакансиях в базу данных."""
-    conn = None
-    try:
-        params = config()
-        conn = psycopg2.connect(**params)
-        cur = conn.cursor()
+    cur.close()
+    conn.close()
 
-        for item in data:
-            employer = item['employer']
-            vacancies = item['vacancies']
+    # 2. Подключаемся к созданной базе и создаем таблицы
+    params['dbname'] = db_name
+    conn = psycopg2.connect(**params)
 
-            # Вставляем данные о работодателе
-            cur.execute(
-                """
-                INSERT INTO employers (hh_id, company_name, url)
-                VALUES (%s, %s, %s)
-                RETURNING employer_id
-                """,
-                (employer['id'], employer['name'], employer['alternate_url'])
+    with conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE employers (
+                employer_id SERIAL PRIMARY KEY,
+                hh_id VARCHAR(20) UNIQUE NOT NULL,
+                company_name VARCHAR(255) NOT NULL,
+                url TEXT
             )
-            # Получаем сгенерированный ID работодателя в нашей БД
-            employer_db_id = cur.fetchone()[0]
+        """)
 
-            for vacancy in vacancies:
-                # Обработка зарплаты (берем 'from', если есть, иначе 0)
-                salary = 0
-                if vacancy['salary'] and vacancy['salary']['from']:
-                    salary = vacancy['salary']['from']
+        cur.execute("""
+            CREATE TABLE vacancies (
+                vacancy_id SERIAL PRIMARY KEY,
+                employer_id INTEGER REFERENCES employers(employer_id),
+                title VARCHAR(255) NOT NULL,
+                salary INTEGER,
+                url TEXT
+            )
+        """)
+
+    conn.commit()
+    conn.close()
+    print(f"База данных {db_name} и таблицы успешно созданы!")
+
+
+def format_salary(salary_data):
+    """
+    Возвращает начальную зарплату или 0, если данные отсутствуют.
+    """
+    if salary_data and isinstance(salary_data.get('from'), int):
+        return salary_data['from']
+    return 0
+
+
+def save_data_to_db(data, db_name, params):
+    """Сохраняет данные о работодателях и вакансиях."""
+    params['dbname'] = db_name
+    conn = psycopg2.connect(**params)
+
+    try:
+        with conn.cursor() as cur:
+            for item in data:
+                employer = item['employer']
+                vacancies = item['vacancies']
 
                 cur.execute(
                     """
-                    INSERT INTO vacancies (employer_id, title, salary, url)
-                    VALUES (%s, %s, %s, %s)
+                    INSERT INTO employers (hh_id, company_name, url)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (hh_id) DO UPDATE SET company_name = EXCLUDED.company_name
+                    RETURNING employer_id
                     """,
-                    (employer_db_id, vacancy['name'], salary, vacancy['alternate_url'])
+                    (employer['id'], employer['name'], employer['alternate_url'])
                 )
+                employer_db_id = cur.fetchone()[0]
+
+                for vacancy in vacancies:
+                    salary = format_salary(vacancy.get('salary'))
+
+                    cur.execute(
+                        """
+                        INSERT INTO vacancies (employer_id, title, salary, url)
+                        VALUES (%s, %s, %s, %s)
+                        """,
+                        (employer_db_id, vacancy['name'], salary, vacancy['alternate_url'])
+                    )
 
         conn.commit()
-        cur.close()
         print("Данные успешно сохранены в БД.")
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(error)
+    except Exception as e:
+        print(f"Ошибка при сохранении: {e}")
+        conn.rollback()
     finally:
-        if conn is not None:
-            conn.close()
+        conn.close()

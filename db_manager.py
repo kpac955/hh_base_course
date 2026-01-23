@@ -1,5 +1,4 @@
 import psycopg2
-from config import config
 
 
 class DBManager:
@@ -7,19 +6,17 @@ class DBManager:
     Класс для управления подключением к БД и выполнения запросов.
     """
 
-    def __init__(self):
-        self.params = config()
+    def __init__(self, db_name, params):
+        self.params = params.copy()
+        self.params['dbname'] = db_name
 
     def get_companies_and_vacancies_count(self) -> list:
-        """
-        Получает список всех компаний и количество вакансий у каждой компании.
-        """
         conn = psycopg2.connect(**self.params)
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT company_name, COUNT(vacancies.vacancy_id) 
                 FROM employers 
-                JOIN vacancies ON employers.employer_id = vacancies.employer_id 
+                LEFT JOIN vacancies ON employers.employer_id = vacancies.employer_id 
                 GROUP BY company_name
             """)
             result = cur.fetchall()
@@ -48,10 +45,10 @@ class DBManager:
         """
         conn = psycopg2.connect(**self.params)
         with conn.cursor() as cur:
-            cur.execute("SELECT AVG(salary) FROM vacancies WHERE salary IS NOT NULL")
+            cur.execute("SELECT AVG(salary) FROM vacancies WHERE salary > 0")
             result = cur.fetchone()[0]
         conn.close()
-        return round(float(result), 2) if result else 0.0
+        return round(float(result), 2) if result is not None else 0.0
 
     def get_vacancies_with_higher_salary(self) -> list:
         """

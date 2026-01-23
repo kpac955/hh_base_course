@@ -1,15 +1,10 @@
 import requests
 
 
-def get_data_from_hh():
+def get_data_from_hh(employer_ids):
     """
     Получает данные о работодателях и их вакансиях с API hh.ru.
     """
-    # ID компаний: Яндекс, Сбер, Тинькофф, ВК, МТС, Озон, Альфа, ВТБ, Теле2, Лаборатория Касперского
-    employer_ids = [
-        '1740', '3529', '78638', '15478', '3776',
-        '2180', '80', '4181', '4233', '1057'
-    ]
 
     data = []
 
@@ -24,7 +19,7 @@ def get_data_from_hh():
 
         data.append({
             'employer': employer_response,
-            'vacancies': vacancies_response['items']
+            'vacancies': vacancies_response.get('items', [])
         })
         print(f"Получены данные для: {employer_response.get('name')}")
 
